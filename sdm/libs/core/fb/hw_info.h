@@ -59,7 +59,7 @@ class HWInfo: public HWInfoInterface {
   static const int kHWCapabilitiesNode = 0;
   static const std::bitset<8> kDefaultFormatSupport[kHWSubBlockMax][
                                                         BITS_TO_BYTES(MDP_IMGTYPE_LIMIT1)];
-  static constexpr const char *kRotatorCapsPath = "/sys/devices/virtual/rotator/mdss_rotator/caps";
+  static constexpr const char *kRotatorCapsPath = "/sys/devices/soc/c900000.qcom,mdss_rotator/caps";
   static constexpr const char *kBWModeBitmap
                                   = "/sys/devices/virtual/graphics/fb0/mdp/bw_mode_bitmap";
 
