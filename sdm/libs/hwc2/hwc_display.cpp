@@ -58,7 +58,7 @@ static ColorPrimaries WidestPrimaries(ColorPrimaries p1, ColorPrimaries p2) {
   if (lp1 == ColorPrimaries_BT2020) {
     lp1 *= weight;
   }
-  if (lp1 == ColorPrimaries_BT2020) {
+  if (lp2 == ColorPrimaries_BT2020) {
     lp2 *= weight;
   }
   if (lp1 >= lp2) {
@@ -1788,6 +1788,11 @@ int HWCDisplay::SetDisplayStatus(DisplayStatus display_status) {
 HWC2::Error HWCDisplay::SetCursorPosition(hwc2_layer_t layer, int x, int y) {
   if (shutdown_pending_) {
     return HWC2::Error::None;
+  }
+
+  if (!layer_stack_.flags.cursor_present) {
+    DLOGW("Cursor layer not present");
+    return HWC2::Error::BadLayer;
   }
 
   HWCLayer *hwc_layer = GetHWCLayer(layer);
