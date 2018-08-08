@@ -630,4 +630,15 @@ DisplayError HWCDisplayBuiltIn::GetMixerResolution(uint32_t *width, uint32_t *he
   return display_intf_->GetMixerResolution(width, height);
 }
 
+HWC2::Error HWCDisplayBuiltIn::ControlIdlePowerCollapse(bool enable, bool synchronous) {
+  DisplayError error = kErrorNone;
+
+  if (display_intf_) {
+    error = display_intf_->ControlIdlePowerCollapse(enable, synchronous);
+    validated_ = false;
+  }
+
+  return (error != kErrorNone) ?  HWC2::Error::Unsupported : HWC2::Error::None;
+}
+
 }  // namespace sdm

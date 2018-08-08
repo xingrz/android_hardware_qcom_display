@@ -99,6 +99,7 @@ class DisplayNull : public DisplayInterface {
   MAKE_NO_OP(SetCompositionState(LayerComposition, bool))
   MAKE_NO_OP(GetClientTargetSupport(uint32_t, uint32_t, LayerBufferFormat,
                                     const ColorMetaData &))
+  MAKE_NO_OP(ControlIdlePowerCollapse(bool, bool))
   std::string Dump() { return ""; }
 
  private:
