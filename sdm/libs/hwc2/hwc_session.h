@@ -209,8 +209,9 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   int GetDisplayIndex(int dpy);
   int CreatePrimaryDisplay();
   int CreateBuiltInDisplays();
-  int CreatePluggableDisplays(bool delay_hotplug);
-  int HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool delay_hotplug);
+  int CreatePluggableDisplays(bool delay_hotplug, bool skip_notify);
+  int HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool delay_hotplug,
+                              bool skip_notify);
   int HandleDisconnectedDisplays(HWDisplaysInfo *hw_displays_info);
   void DestroyDisplay(DisplayMapInfo *map_info);
   int GetVsyncPeriod(int disp);
@@ -304,7 +305,6 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   std::vector<DisplayMapInfo> map_info_virtual_;    // Virtual displays
   bool reset_panel_ = false;
   bool secure_display_active_ = false;
-  bool primary_ready_ = false;
   bool client_connected_ = false;
   bool new_bw_mode_ = false;
   bool need_invalidate_ = false;
