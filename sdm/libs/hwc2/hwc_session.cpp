@@ -169,25 +169,9 @@ int HWCSession::Init() {
     return -EINVAL;
   }
 
-
-  color_mgr_ = HWCColorManager::CreateColorManager(&buffer_allocator_);
-  if (!color_mgr_) {
-    DLOGW("Failed to load HWCColorManager.");
-  }
-
+  // Create primary display here. Remaining builtin displays will be created after client has set
+  // display indexes which may happen sometime before callback is registered.
   status = CreatePrimaryDisplay();
-  if (status) {
-    Deinit();
-    return status;
-  }
-
-  status = CreateBuiltInDisplays();
-  if (status) {
-    Deinit();
-    return status;
-  }
-
-  status = CreatePluggableDisplays(false, true /* skip hotplug notification*/);
   if (status) {
     Deinit();
     return status;
@@ -551,6 +535,13 @@ int32_t HWCSession::PresentDisplay(hwc2_device_t *device, hwc2_display_t display
     SEQUENCE_CANCEL_SCOPE_LOCK(locker_[display]);
   }
 
+  // Handle pending builtin/pluggable display connections
+  if (!hwc_session->primary_ready_ && (display == HWC_DISPLAY_PRIMARY)) {
+    hwc_session->CreateBuiltInDisplays();
+    hwc_session->CreatePluggableDisplays(false);
+    hwc_session->primary_ready_ = true;
+  }
+
   return INT32(status);
 }
 
@@ -569,16 +560,12 @@ int32_t HWCSession::RegisterCallback(hwc2_device_t *device, int32_t descriptor,
   }
 
   DLOGD("%s callback: %s", pointer ? "Registering" : "Deregistering", to_string(desc).c_str());
-  if (descriptor == HWC2_CALLBACK_HOTPLUG && pointer) {
-    for (hwc2_display_t disp = 0; disp < kNumDisplays; disp++) {
-      if (!hwc_session->hwc_display_[disp]) {
-        continue;
-      }
-      hwc_session->callbacks_.Hotplug(disp, HWC2::Connection::Connected);
+  if (descriptor == HWC2_CALLBACK_HOTPLUG) {
+    if (hwc_session->hwc_display_[HWC_DISPLAY_PRIMARY]) {
+      hwc_session->callbacks_.Hotplug(HWC_DISPLAY_PRIMARY, HWC2::Connection::Connected);
     }
+    hwc_session->client_connected_ = true;
   }
-  
-  hwc_session->client_connected_ = true;
   hwc_session->need_invalidate_ = false;
   hwc_session->callbacks_lock_.Broadcast();
 
@@ -1021,6 +1008,11 @@ bool HWCSession::GetSecondBuiltinStatus() {
 }
 
 void HWCSession::HandleConcurrency(hwc2_display_t disp) {
+  if (!primary_ready_) {
+    DLOGI("Primary isnt ready yet!!");
+    return;
+  }
+
   hwc2_display_t virtual_display_index = (hwc2_display_t)GetDisplayIndex(qdutils::DISPLAY_VIRTUAL);
   // Valid Concurrencies
   // For two builtins   --> Builtin + Builtin OR Builtin + External OR Builtin + Virtual
@@ -1812,7 +1804,7 @@ void HWCSession::UEventHandler(const char *uevent_data, int length) {
     hpd_bpp_ = GetEventValue(uevent_data, length, "bpp=");
     hpd_pattern_ = GetEventValue(uevent_data, length, "pattern=");
     DLOGI("Uevent = %s, bpp = %d, pattern = %d", uevent_data, hpd_bpp_, hpd_pattern_);
-    if (CreatePluggableDisplays(true, false /* do not skip hotplug notification*/)) {
+    if (CreatePluggableDisplays(true)) {
       DLOGE("Could not handle hotplug. Event dropped.");
     }
 
@@ -1951,6 +1943,11 @@ int HWCSession::CreatePrimaryDisplay() {
       DLOGI("Primary display created.");
       map_info_primary_.disp_type = info.display_type;
       map_info_primary_.sdm_id = info.display_id;
+
+      color_mgr_ = HWCColorManager::CreateColorManager(&buffer_allocator_);
+      if (!color_mgr_) {
+        DLOGW("Failed to load HWCColorManager.");
+      }
     } else {
       DLOGE("Primary display creation failed.");
     }
@@ -1986,7 +1983,7 @@ int HWCSession::CreateBuiltInDisplays() {
       return 0;
     }
 
-    DisplayMapInfo &map_info = map_info_builtin_[next_builtin_index++];
+    DisplayMapInfo &map_info = map_info_builtin_[next_builtin_index];
     hwc2_display_t client_id = map_info.client_id;
 
     // Lock confined to this scope
@@ -2005,12 +2002,19 @@ int HWCSession::CreateBuiltInDisplays() {
         break;
       }
     }
+
+    callbacks_.Hotplug(client_id, HWC2::Connection::Connected);
   }
 
   return status;
 }
 
-int HWCSession::CreatePluggableDisplays(bool delay_hotplug, bool skip_notify) {
+int HWCSession::CreatePluggableDisplays(bool delay_hotplug) {
+  if (!primary_ready_) {
+    DLOGI("Primary display is not ready. Connect displays later if any.");
+    return 0;
+  }
+
   HWDisplaysInfo hw_displays_info = {};
 
   DisplayError error = core_intf_->GetDisplaysStatus(&hw_displays_info);
@@ -2025,7 +2029,7 @@ int HWCSession::CreatePluggableDisplays(bool delay_hotplug, bool skip_notify) {
     return status;
   }
 
-  status = HandleConnectedDisplays(&hw_displays_info, delay_hotplug, skip_notify);
+  status = HandleConnectedDisplays(&hw_displays_info, delay_hotplug);
   if (status) {
     DLOGE("All displays could not be connected.");
     return status;
@@ -2034,8 +2038,7 @@ int HWCSession::CreatePluggableDisplays(bool delay_hotplug, bool skip_notify) {
   return 0;
 }
 
-int HWCSession::HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool delay_hotplug,
-                                        bool skip_notify) {
+int HWCSession::HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool delay_hotplug) {
   int status = 0;
   std::vector<hwc2_display_t> pending_hotplugs = {};
 
@@ -2095,7 +2098,7 @@ int HWCSession::HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool d
   }
 
   // No display was created.
-  if (!pending_hotplugs.size() || skip_notify) {
+  if (!pending_hotplugs.size()) {
     return 0;
   }
 
@@ -2217,6 +2220,7 @@ void HWCSession::UpdateVsyncSource(hwc2_display_t display) {
 
     // No other active builtin display is present.
     if (next_vsync_source == HWC_DISPLAY_PRIMARY) {
+      DLOGI("No other active builtin display, nothing to do.");
       return;
     }
 
