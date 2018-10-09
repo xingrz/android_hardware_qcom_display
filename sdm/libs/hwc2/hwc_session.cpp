@@ -262,6 +262,9 @@ int HWCSession::GetDisplayIndex(int dpy) {
     case qdutils::DISPLAY_VIRTUAL:
       map_info = map_info_virtual_.size() ? &map_info_virtual_[0] : nullptr;
       break;
+    case qdutils::DISPLAY_BUILTIN_2:
+      map_info = map_info_builtin_.size() ? &map_info_builtin_[0] : nullptr;
+      break;
   }
 
   if (!map_info) {
@@ -791,7 +794,7 @@ int32_t HWCSession::SetPowerMode(hwc2_device_t *device, hwc2_display_t display, 
     return error;
   }
 
-  hwc_session->UpdateVsyncSource(display);
+  hwc_session->UpdateVsyncSource();
   hwc_session->HandleConcurrency(display);
 
   return HWC2_ERROR_NONE;
@@ -1133,7 +1136,11 @@ android::status_t HWCSession::notifyCallback(uint32_t command, const android::Pa
       break;
 
     case qService::IQService::SCREEN_REFRESH:
-      status = refreshScreen();
+      if (!input_parcel) {
+        DLOGE("QService command = %d: input_parcel needed.", command);
+        break;
+      }
+      status = RefreshScreen(input_parcel);
       break;
 
     case qService::IQService::SET_IDLE_TIMEOUT:
@@ -1549,7 +1556,7 @@ android::status_t HWCSession::SetColorModeOverride(const android::Parcel *input_
 }
 
 android::status_t HWCSession::SetColorModeById(const android::Parcel *input_parcel) {
-  int display = static_cast<int >(input_parcel->readInt32());
+  int display = input_parcel->readInt32();
   auto mode = input_parcel->readInt32();
   auto device = static_cast<hwc2_device_t *>(this);
 
@@ -1563,6 +1570,20 @@ android::status_t HWCSession::SetColorModeById(const android::Parcel *input_parc
                                  &HWCDisplay::SetColorModeById, mode);
   if (err != HWC2_ERROR_NONE)
     return -EINVAL;
+
+  return 0;
+}
+
+android::status_t HWCSession::RefreshScreen(const android::Parcel *input_parcel) {
+  int display = input_parcel->readInt32();
+
+  int disp_idx = GetDisplayIndex(display);
+  if (disp_idx == -1) {
+    DLOGE("Invalid display = %d", display);
+    return -EINVAL;
+  }
+
+  Refresh(static_cast<hwc2_display_t>(disp_idx));
 
   return 0;
 }
@@ -2168,6 +2189,7 @@ int HWCSession::HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool d
     DLOGI("Notify hotplug connected: client id = %d", client_id);
     callbacks_.Hotplug(client_id, HWC2::Connection::Connected);
     HandleConcurrency(client_id);
+    UpdateVsyncSource();
   }
 
   return 0;
@@ -2231,6 +2253,7 @@ void HWCSession::DestroyDisplay(DisplayMapInfo *map_info) {
     hwc_display = nullptr;
     map_info->Reset();
     HandleConcurrency(client_id);
+    UpdateVsyncSource();
   }
 
   if (notify_hotplug) {
@@ -2238,45 +2261,49 @@ void HWCSession::DestroyDisplay(DisplayMapInfo *map_info) {
   }
 }
 
-void HWCSession::UpdateVsyncSource(hwc2_display_t display) {
-  // Nothing to do if this display is not source for vysnc currently and it is non-primary.
+void HWCSession::UpdateVsyncSource() {
   hwc2_display_t active_source = callbacks_.GetVsyncSource();
-  if (display != active_source && display != HWC_DISPLAY_PRIMARY) {
-    DLOGI("Display = %d is not source for vsync and non-primary", display);
+  hwc2_display_t next_vsync_source = GetNextVsyncSource();
+  if (active_source == next_vsync_source) {
     return;
   }
 
-  HWC2::Vsync vsync_mode = hwc_display_[active_source]->GetLastVsyncMode();
-  HWC2::PowerMode power_mode = hwc_display_[display]->GetLastPowerMode();
+  callbacks_.SetSwapVsync(next_vsync_source, HWC_DISPLAY_PRIMARY);
+  HWC2::PowerMode power_mode = hwc_display_[next_vsync_source]->GetLastPowerMode();
 
+  // Skip enabling vsync if display is Off, happens only for default source ie; primary.
+  if (power_mode == HWC2::PowerMode::Off) {
+    return;
+  }
+
+  HWC2::Vsync vsync_mode = hwc_display_[active_source] ?
+                           hwc_display_[active_source]->GetLastVsyncMode() : HWC2::Vsync::Enable;
+  hwc_display_[next_vsync_source]->SetVsyncEnabled(vsync_mode);
+  DLOGI("active_source %d next_vsync_source %d", active_source, next_vsync_source);
+}
+
+hwc2_display_t HWCSession::GetNextVsyncSource() {
   // If primary display is powered off, change vsync source to next builtin display.
   // If primary display is powerd on, change vsync source back to primary display.
-  if (power_mode == HWC2::PowerMode::Off) {
-    hwc2_display_t next_vsync_source = HWC_DISPLAY_PRIMARY;
-    for (auto &info : map_info_builtin_) {
-      auto &hwc_display = hwc_display_[info.client_id];
-      if (!hwc_display) {
-        continue;
-      }
+  // First check for active builtins. If not found switch to pluggable displays.
 
-      if (hwc_display->GetLastPowerMode() != HWC2::PowerMode::Off) {
-        next_vsync_source = info.client_id;
-        DLOGI("Swap vsync source to display = %d", next_vsync_source);
-        break;
-      }
+  std::vector<DisplayMapInfo> map_info = {map_info_primary_};
+  std::copy(map_info_builtin_.begin(), map_info_builtin_.end(), std::back_inserter(map_info));
+  std::copy(map_info_pluggable_.begin(), map_info_pluggable_.end(), std::back_inserter(map_info));
+
+  for (auto &info : map_info) {
+    auto &hwc_display = hwc_display_[info.client_id];
+    if (!hwc_display) {
+      continue;
     }
 
-    // No other active builtin display is present.
-    if (next_vsync_source == HWC_DISPLAY_PRIMARY) {
-      return;
+    if (hwc_display->GetLastPowerMode() != HWC2::PowerMode::Off) {
+      return info.client_id;
     }
-
-    callbacks_.SetSwapVsync(next_vsync_source, HWC_DISPLAY_PRIMARY);
-    hwc_display_[next_vsync_source]->SetVsyncEnabled(vsync_mode);
-  } else if (display == HWC_DISPLAY_PRIMARY) {
-    callbacks_.SetSwapVsync(HWC_DISPLAY_PRIMARY, HWC_DISPLAY_PRIMARY);
-    hwc_display_[HWC_DISPLAY_PRIMARY]->SetVsyncEnabled(vsync_mode);
   }
+
+  // No Vsync source found. Default to main display.
+  return HWC_DISPLAY_PRIMARY;
 }
 
 void HWCSession::ActivateDisplay(hwc2_display_t disp, bool enable) {

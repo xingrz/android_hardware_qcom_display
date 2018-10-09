@@ -288,16 +288,18 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
 
   android::status_t SetColorModeById(const android::Parcel *input_parcel);
   android::status_t getComposerStatus();
+  android::status_t RefreshScreen(const android::Parcel *input_parcel);
 
   void Refresh(hwc2_display_t display);
   void HotPlug(hwc2_display_t display, HWC2::Connection state);
-  void UpdateVsyncSource(hwc2_display_t display);
+  void UpdateVsyncSource();
   void HandleConcurrency(hwc2_display_t disp);
   void ActivateDisplay(hwc2_display_t disp, bool enable);
   void NonBuiltinConcurrency(hwc2_display_t disp, bool is_built_in_2_on);
   void MapBuiltInDisplays();
   bool GetSecondBuiltinStatus();
   hwc2_display_t GetNextBuiltinIndex();
+  hwc2_display_t GetNextVsyncSource();
 
   CoreInterface *core_intf_ = nullptr;
   HWCDisplay *hwc_display_[kNumDisplays] = {nullptr};

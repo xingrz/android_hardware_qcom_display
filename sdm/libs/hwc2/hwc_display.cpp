@@ -546,6 +546,11 @@ void HWCDisplay::BuildLayerStack() {
       is_secure = true;
     }
 
+    if (layer->input_buffer.flags.secure_camera) {
+      layer_stack_.flags.secure_camera_present = true;
+      is_secure = true;
+    }
+
     if (hwc_layer->IsSingleBuffered() &&
        !(hwc_layer->IsRotationPresent() || hwc_layer->IsScalingPresent())) {
       layer->flags.single_buffer = true;
@@ -629,6 +634,20 @@ void HWCDisplay::BuildLayerStack() {
     }
   }
 #endif
+
+  //MDP can't handle secure camera and normal rotation together.
+  if (layer_stack_.flags.secure_camera_present){
+    for (auto hwc_layer : layer_set_) {
+      auto layer = hwc_layer->GetSDMLayer();
+      //TODO(user): Need to add proper downscaling check.
+      if (hwc_layer->IsRotationPresent() || (hwc_layer->GetScaleFactor() < 0.25)) {
+        if (!layer->input_buffer.flags.secure_camera) {
+          layer->flags.skip = true;
+          layer_stack_.flags.skip_present = true;
+        }
+      }
+    }
+  }
 
   // TODO(user): Set correctly when SDM supports geometry_changes as bitmask
   layer_stack_.flags.geometry_changed = UINT32(geometry_changes_ > 0);
@@ -1078,6 +1097,8 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
         // To prevent surfaceflinger infinite wait, flush the previous frame during Commit()
         // so that previous buffer and fences are released, and override the error.
         flush_ = true;
+      } else {
+        WaitOnPreviousFence();
       }
       return HWC2::Error::BadDisplay;
     } else {
@@ -2185,6 +2206,28 @@ void HWCDisplay::UpdateRefreshRate() {
 
   Layer *sdm_client_target = client_target_->GetSDMLayer();
   sdm_client_target->frame_rate = current_refresh_rate_;
+}
+
+void HWCDisplay::WaitOnPreviousFence() {
+  DisplayConfigFixedInfo display_config;
+  display_intf_->GetConfig(&display_config);
+  if(!display_config.is_cmdmode) {
+    return;
+  }
+
+  // Since prepare failed commit would follow the same.
+  // Wait for previous rel fence.
+  for (auto hwc_layer : layer_set_) {
+    auto fence = hwc_layer->PopBackReleaseFence();
+    if (fence >= 0) {
+      int error = sync_wait(fence, 1000);
+      if (error < 0) {
+        DLOGW("sync_wait error errno = %d, desc = %s", errno, strerror(errno));
+        return;
+      }
+    }
+    hwc_layer->PushBackReleaseFence(fence);
+  }
 }
 
 }  // namespace sdm
