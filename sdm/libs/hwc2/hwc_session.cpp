@@ -2341,8 +2341,8 @@ android::status_t HWCSession::SetIdlePC(const android::Parcel *input_parcel) {
       return -EINVAL;
     }
     auto error = hwc_display_[HWC_DISPLAY_PRIMARY]->ControlIdlePowerCollapse(enable, synchronous);
-    if (error != HWC2::Error::None) {
-      return -EINVAL;
+    if (error == HWC2::Error::Unsupported) {
+      return 0;
     }
     if (!enable) {
       Refresh(HWC_DISPLAY_PRIMARY);
