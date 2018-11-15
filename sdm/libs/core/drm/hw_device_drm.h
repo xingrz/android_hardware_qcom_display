@@ -197,6 +197,7 @@ class HWDeviceDRM : public HWInterface {
   bool resolution_switch_enabled_ = false;
   uint32_t vrefresh_ = 0;
   bool autorefresh_ = false;
+  bool pending_doze_ = false;
 };
 
 }  // namespace sdm
