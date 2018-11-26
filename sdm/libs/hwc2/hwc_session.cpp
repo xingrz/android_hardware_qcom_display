@@ -796,11 +796,6 @@ int32_t HWCSession::SetPowerMode(hwc2_device_t *device, hwc2_display_t display, 
 
   hwc_session->UpdateVsyncSource();
   hwc_session->HandleConcurrency(display);
-  // Reset idle pc ref count on suspend, as we enable idle pc during suspend.
-  if (mode == HWC2::PowerMode::Off) {
-    HWCSession *hwc_session = static_cast<HWCSession *>(device);
-    hwc_session->idle_pc_ref_cnt_ = 0;
-  }
 
   // Trigger refresh for doze mode to take effect.
   if (mode == HWC2::PowerMode::Doze) {
@@ -1378,14 +1373,6 @@ android::status_t HWCSession::notifyCallback(uint32_t command, const android::Pa
       }
       status = 0;
       output_parcel->writeInt32(getComposerStatus());
-      break;
-
-    case qService::IQService::SET_IDLE_PC:
-      if (!input_parcel) {
-        DLOGE("QService command = %d: input_parcel needed.", command);
-        break;
-      }
-      status = SetIdlePC(input_parcel);
       break;
 
     default:
@@ -2336,37 +2323,6 @@ void HWCSession::ActivateDisplay(hwc2_display_t disp, bool enable) {
   }
   hwc_display_[disp]->ActivateDisplay(enable);
   DLOGI("Disp: %d, Active: %d", disp, enable);
-}
-
-android::status_t HWCSession::SetIdlePC(const android::Parcel *input_parcel) {
-  auto enable = input_parcel->readInt32();
-  auto synchronous = input_parcel->readInt32();
-
-#ifdef DISPLAY_CONFIG_1_3
-  return static_cast<android::status_t>(controlIdlePowerCollapse(enable, synchronous));
-#else
-  {
-    SEQUENCE_WAIT_SCOPE_LOCK(locker_[HWC_DISPLAY_PRIMARY]);
-    if (hwc_display_[HWC_DISPLAY_PRIMARY]) {
-      DLOGE("Primary display is not ready");
-      return -EINVAL;
-    }
-    auto error = hwc_display_[HWC_DISPLAY_PRIMARY]->ControlIdlePowerCollapse(enable, synchronous);
-    if (error != HWC2::Error::None) {
-      return -EINVAL;
-    }
-    if (!enable) {
-      Refresh(HWC_DISPLAY_PRIMARY);
-      int32_t error = locker_[HWC_DISPLAY_PRIMARY].WaitFinite(kCommitDoneTimeoutMs);
-      if (error == ETIMEDOUT) {
-        DLOGE("Timed out!! Next frame commit done event not received!!");
-        return error;
-      }
-    }
-    DLOGI("Idle PC %s!!", enable ? "enabled" : "disabled");
-  }
-  return 0;
-#endif
 }
 
 }  // namespace sdm

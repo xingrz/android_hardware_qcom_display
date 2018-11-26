@@ -77,7 +77,6 @@ public:
         GET_HDR_CAPABILITIES = 35, // Get HDR capabilities for legacy HWC interface
         SET_COLOR_MODE_BY_ID = 36, // Overrides the QDCM mode using the given mode ID
         GET_COMPOSER_STATUS = 37, // Get composer init status-true if primary display init is done
-        SET_IDLE_PC = 39, // Enable/disable Idle power collapse
         COMMAND_LIST_END = 400,
     };
 

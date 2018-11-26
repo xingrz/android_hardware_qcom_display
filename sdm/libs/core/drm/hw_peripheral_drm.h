@@ -47,18 +47,11 @@ class HWPeripheralDRM : public HWDeviceDRM {
   virtual DisplayError Validate(HWLayers *hw_layers);
   virtual DisplayError Commit(HWLayers *hw_layers);
   virtual DisplayError Flush(HWLayers *hw_layers);
-  virtual DisplayError ControlIdlePowerCollapse(bool enable, bool synchronous);
-  virtual DisplayError PowerOn(const HWQosData &qos_data, int *release_fence);
  private:
   void SetDestScalarData(HWLayersInfo hw_layer_info);
   void ResetDisplayParams();
-  void SetIdlePCState() {
-      drm_atomic_intf_->Perform(sde_drm::DRMOps::CRTC_SET_IDLE_PC_STATE, token_.crtc_id,
-                                idle_pc_state_);
-  }
   sde_drm_dest_scaler_data sde_dest_scalar_data_ = {};
   std::vector<SDEScaler> scalar_data_ = {};
-  sde_drm::DRMIdlePCState idle_pc_state_ = sde_drm::DRMIdlePCState::NONE;
 };
 
 }  // namespace sdm

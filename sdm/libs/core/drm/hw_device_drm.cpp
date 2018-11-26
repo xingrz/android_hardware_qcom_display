@@ -780,8 +780,26 @@ DisplayError HWDeviceDRM::GetConfigIndex(char *mode, uint32_t *index) {
 }
 
 DisplayError HWDeviceDRM::PowerOn(const HWQosData &qos_data, int *release_fence) {
+  DTRACE_SCOPED();
+  if (!drm_atomic_intf_) {
+    DLOGE("DRM Atomic Interface is null!");
+    return kErrorUndefined;
+  }
+
+  if (first_cycle_) {
+    if (!hw_panel_info_.is_primary_panel && (disp_type_ == DRMDisplayType::PERIPHERAL)
+        && (!builtin_mirroring_enabled_)) {
+      drm_atomic_intf_->Perform(DRMOps::CONNECTOR_SET_CRTC, token_.conn_id, token_.crtc_id);
+      drmModeModeInfo current_mode = connector_info_.modes[current_mode_index_].mode;
+      drm_atomic_intf_->Perform(DRMOps::CRTC_SET_MODE, token_.crtc_id, &current_mode);
+      DLOGI("Allowing poweron without commit");
+    } else {
+      return kErrorNone;
+    }
+  }
 
   SetQOSData(qos_data);
+
   drm_atomic_intf_->Perform(DRMOps::CRTC_SET_ACTIVE, token_.crtc_id, 1);
   drm_atomic_intf_->Perform(DRMOps::CONNECTOR_SET_POWER_MODE, token_.conn_id, DRMPowerMode::ON);
   int ret = drm_atomic_intf_->Commit(true /* synchronous */, true /* retain_planes */);
@@ -1185,7 +1203,7 @@ DisplayError HWDeviceDRM::AtomicCommit(HWLayers *hw_layers) {
   DTRACE_SCOPED();
   SetupAtomic(hw_layers, false /* validate */);
 
-  int ret = drm_atomic_intf_->Commit(synchronous_commit_, false /* retain_planes*/);
+  int ret = drm_atomic_intf_->Commit(false /* synchronous */, false /* retain_planes*/);
   if (ret) {
     DLOGE("%s failed with error %d crtc %d", __FUNCTION__, ret, token_.crtc_id);
     vrefresh_ = 0;
