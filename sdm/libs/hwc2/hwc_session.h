@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  * Not a Contribution.
  *
  * Copyright 2015 The Android Open Source Project
@@ -97,12 +97,6 @@ class HWCUEvent {
 
 class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qClient::BnQClient {
  public:
-  static const int kNumBuiltIn = 4;
-  static const int kNumPluggable = 4;
-  static const int kNumVirtual = 4;
-  // Add 1 primary display which can be either a builtin or pluggable.
-  static const int kNumDisplays = 1 + kNumBuiltIn + kNumPluggable + kNumVirtual;
-
   struct HWCModuleMethods : public hw_module_methods_t {
     HWCModuleMethods() { hw_module_methods_t::open = HWCSession::Open; }
   };
@@ -120,7 +114,7 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
       return HWC2_ERROR_BAD_PARAMETER;
     }
 
-    if (display >= kNumDisplays) {
+    if (display >= HWCCallbacks::kNumDisplays) {
       return HWC2_ERROR_BAD_DISPLAY;
     }
 
@@ -142,7 +136,7 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
       return HWC2_ERROR_BAD_PARAMETER;
     }
 
-    if (display >= kNumDisplays) {
+    if (display >= HWCCallbacks::kNumDisplays) {
       return HWC2_ERROR_BAD_DISPLAY;
     }
 
@@ -191,14 +185,14 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   static int32_t GetDozeSupport(hwc2_device_t *device, hwc2_display_t display,
                                 int32_t *out_support);
 
-  static Locker locker_[kNumDisplays];
+  static Locker locker_[HWCCallbacks::kNumDisplays];
 
  private:
   struct DisplayMapInfo {
-    hwc2_display_t client_id = kNumDisplays;        // mapped sf id for this display
-    int32_t sdm_id = -1;                            // sdm id for this display
-    sdm:: DisplayType disp_type = kDisplayTypeMax;  // sdm display type
-    bool test_pattern = false;                      // display will show test pattern
+    hwc2_display_t client_id = HWCCallbacks::kNumDisplays;    // mapped sf id for this display
+    int32_t sdm_id = -1;                                      // sdm id for this display
+    sdm:: DisplayType disp_type = kDisplayTypeMax;            // sdm display type
+    bool test_pattern = false;                                // display will show test pattern
     void Reset() {
       // Do not clear client id
       sdm_id = -1;
@@ -229,6 +223,8 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   int HandleConnectedDisplays(HWDisplaysInfo *hw_displays_info, bool delay_hotplug);
   int HandleDisconnectedDisplays(HWDisplaysInfo *hw_displays_info);
   void DestroyDisplay(DisplayMapInfo *map_info);
+  void DestroyPluggableDisplay(DisplayMapInfo *map_info);
+  void DestroyNonPluggableDisplay(DisplayMapInfo *map_info);
   int GetVsyncPeriod(int disp);
   int32_t GetConfigCount(int disp_id, uint32_t *count);
   int32_t GetActiveConfigIndex(int disp_id, uint32_t *config);
@@ -345,8 +341,8 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   hwc2_display_t GetNextVsyncSource();
 
   CoreInterface *core_intf_ = nullptr;
-  HWCDisplay *hwc_display_[kNumDisplays] = {nullptr};
-  HWCDisplay *hwc_display_builtin_[kNumBuiltIn] = {nullptr};
+  HWCDisplay *hwc_display_[HWCCallbacks::kNumDisplays] = {nullptr};
+  HWCDisplay *hwc_display_builtin_[HWCCallbacks::kNumBuiltIn] = {nullptr};
   HWCCallbacks callbacks_;
   HWCBufferAllocator buffer_allocator_;
   HWCBufferSyncHandler buffer_sync_handler_;
@@ -371,7 +367,7 @@ class HWCSession : hwc2_device_t, HWCUEventListener, IDisplayConfig, public qCli
   Locker callbacks_lock_;
   int hpd_bpp_ = 0;
   int hpd_pattern_ = 0;
-  std::bitset<kNumDisplays> pending_refresh_;
+  std::bitset<HWCCallbacks::kNumDisplays> pending_refresh_;
 };
 
 }  // namespace sdm
